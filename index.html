@@ -58,7 +58,7 @@ h2{font-family:var(--display);font-weight:500;font-size:1.1rem;margin:0}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .between{justify-content:space-between}
 select,input{font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0}
-input[type="number"]{text-align:right}
+input[type="number"],#mMonto,[id^="accS"]{text-align:right}
 .btn{border:1px solid var(--line);background:var(--surface);color:var(--fg);font:600 .9rem var(--body);padding:9px 14px;border-radius:8px;cursor:pointer}
 .btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 .btn.danger{color:var(--out);border-color:var(--out)}
@@ -246,7 +246,7 @@ body{margin:0;font-family:var(--body)}
     </div>
     <div class="two">
       <label>Fecha<input type="date" id="mFecha" required></label>
-      <label>Monto (USD)<input type="number" id="mMonto" inputmode="decimal" step="0.01" min="0" placeholder="0,00" required></label>
+      <label>Monto (USD)<input type="text" id="mMonto" inputmode="decimal" autocomplete="off" placeholder="0,00" required></label>
     </div>
     <label>Descripción<input type="text" id="mDesc" maxlength="120" placeholder="Ej. Supermercado"></label>
     <div class="two">
@@ -273,6 +273,8 @@ const money=n=>fmt.format(n||0);
 const pct=n=>(Math.round(n*1000)/10).toLocaleString("es-EC")+"%";
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const pad=n=>String(n).padStart(2,"0");
+// Acepta "12,50", "12.50", "1.234,56" o "1,234.56"
+function num(v){let s=String(v??"").replace(/[^0-9.,-]/g,"");const c=s.lastIndexOf(","),d=s.lastIndexOf(".");if(c>-1&&d>-1){const dec=c>d?",":".";s=s.split(dec===","?".":",").join("").replace(dec,".")}else if(c>-1){s=s.replace(/,/g,".")}const p=s.split(".");if(p.length>2)s=p.slice(0,-1).join("")+"."+p[p.length-1];const n=parseFloat(s);return isFinite(n)?Math.round(n*100)/100:NaN}
 const todayISO=()=>{const d=new Date();return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate())};
 
 let db=null, downloads=null;
@@ -405,7 +407,7 @@ function renderCuentas(){
     return `<div class="card"><div class="acc">
       <input id="accN${i}" value="${esc(c.nombre)}" data-i="${i}" data-f="nombre" aria-label="Nombre de la cuenta">
       <select id="accT${i}" data-i="${i}" data-f="tipo" aria-label="Tipo">${[...new Set([...TIPOS_CTA,c.tipo].filter(Boolean))].map(t=>`<option${t===c.tipo?" selected":""}>${esc(t)}</option>`).join("")}</select>
-      <input id="accS${i}" type="number" step="0.01" value="${+c.saldoInicial||0}" data-i="${i}" data-f="saldoInicial" aria-label="Saldo inicial">
+      <input id="accS${i}" type="text" inputmode="decimal" autocomplete="off" value="${String(+c.saldoInicial||0).replace('.',',')}" data-i="${i}" data-f="saldoInicial" aria-label="Saldo inicial">
       <button class="btn ghost x" data-delacc="${i}" ${used?"disabled title=\"Tiene movimientos\"":""}>Quitar</button></div>
       <div class="accstats"><span>Saldo inicial <b>${money(+c.saldoInicial)}</b></span><span>Ingresos <b class="pos">${money(s.inc)}</b></span><span>Egresos <b class="neg">${money(s.out)}</b></span><span>Saldo actual <b>${money(saldo)}</b></span></div></div>`}).join("");
   const tot=cfg.cuentas.reduce((t,c)=>{const s=accStats(c.nombre);return{i:t.i+(+c.saldoInicial||0),a:t.a+s.inc,b:t.b+s.out}},{i:0,a:0,b:0});
@@ -417,7 +419,7 @@ $("accList").addEventListener("change",async e=>{
   const c=cfg.cuentas[i]; if(!c)return;
   if(f==="nombre"){const nv=t.value.trim();if(!nv||cfg.cuentas.some((x,j)=>j!==i&&x.nombre===nv)){toast("Usa un nombre distinto y no vacío");t.value=c.nombre;return}
     const old=c.nombre;c.nombre=nv;await saveCfg();await renameIn("cuenta",old,nv);}
-  else if(f==="saldoInicial"){c.saldoInicial=Math.round((parseFloat(t.value)||0)*100)/100;await saveCfg()}
+  else if(f==="saldoInicial"){const v=num(t.value);if(isNaN(v)){toast("Escribe un número, por ejemplo 245,50");t.value=String(+c.saldoInicial||0).replace(".",",");return}c.saldoInicial=v;await saveCfg()}
   else {c[f]=t.value;await saveCfg()}
 });
 $("accList").addEventListener("click",async e=>{const b=e.target.closest("[data-delacc]");if(!b||b.disabled)return;
@@ -475,7 +477,7 @@ function openForm(m){
   const ctas=cfg.cuentas.map(c=>c.nombre); if(m&&m.cuenta&&!ctas.includes(m.cuenta))ctas.push(m.cuenta);
   $("mCta").innerHTML=ctas.length?ctas.map(c=>`<option>${esc(c)}</option>`).join(""):`<option value="">Sin cuentas</option>`;
   let last=null;try{last=localStorage.getItem("fin_lastCta")}catch(e){}
-  $("mFecha").value=m?m.fecha:todayISO();$("mMonto").value=m?m.monto:"";$("mDesc").value=m?(m.descripcion||""):"";
+  $("mFecha").value=m?m.fecha:todayISO();$("mMonto").value=m?String(m.monto).replace(".",","):"";$("mDesc").value=m?(m.descripcion||""):"";
   $("mCat").innerHTML="";setTipo(m?m.tipo:"Egreso");if(m)$("mCat").value=m.categoria;
   $("mCta").value=m?m.cuenta:(last&&ctas.includes(last)?last:ctas[0]||"");
   try{$("dlg").showModal()}catch(e){$("dlg").setAttribute("open","")}
@@ -488,7 +490,7 @@ $("mDel").onclick=()=>{$("mDel").hidden=true;$("mDelOk").hidden=false};
 $("mDelOk").onclick=()=>{if(!editing)return;movs=movs.filter(m=>m.id!==editing.id);persist();closeForm();renderAll();toast("Movimiento eliminado")};
 $("mvForm").addEventListener("submit",async e=>{
   e.preventDefault();
-  const monto=Math.round((parseFloat($("mMonto").value)||0)*100)/100, fecha=$("mFecha").value;
+  const monto=num($("mMonto").value)||0, fecha=$("mFecha").value;
   if(!fecha){$("mErr").textContent="Elige la fecha.";return}
   if(!(monto>0)){$("mErr").textContent="Escribe un monto mayor que cero.";return}
   const body={fecha,descripcion:$("mDesc").value.trim(),tipo,categoria:$("mCat").value,cuenta:$("mCta").value,monto,creado:editing&&editing.creado||Date.now()};
